@@ -12,6 +12,7 @@ services:
       - ./:/app:cached
     depends_on:
       - db
+      - unleash
   test:
     build: .
     container_name: livraria_api_test
@@ -20,7 +21,7 @@ services:
     ports:
       - "4000:4000"
     volumes:
-      - ./:/app:cached  
+      - ./:/app:cached
   db:
     image: postgres:15
     container_name: livraria_db
@@ -32,6 +33,43 @@ services:
       - "5432:5432"
     volumes:
       - database:/var/lib/postgresql/data
-  
+
+  unleash:
+    build: ./unleash-docker/.
+    ports:
+      - "4242:4242"
+    environment:
+      # CORRIGIDO: Apontando para o banco correto (db) no host correto (db_unleash) sem senha, já que está com trust
+      DATABASE_URL: "postgres://postgres@db_unleash:5432/db"
+      DATABASE_SSL: "false"
+      INIT_CLIENT_API_TOKENS: "default:development.unleash-insecure-api-token"
+    depends_on:
+      db_unleash:
+        condition: service_healthy # Garante que o Unleash só tenta subir quando o banco passar no healthcheck
+    # CORRIGIDO: Passando a string inteira para o sh -c e apontando para db_unleash:5432
+    command: ["sh", "-c", "sh ./wait-for db_unleash:5432 -- node index.js"]
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:4242/health || exit 1
+      interval: 5s # 1s é muito agressivo, mudei para 5s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+  db_unleash:
+    expose:
+      - "5432"
+    image: postgres:15
+    environment:
+      # create a database called `db`
+      POSTGRES_DB: "db"
+      # trust incoming connections blindly (DON'T DO THIS IN PRODUCTION!)
+      POSTGRES_HOST_AUTH_METHOD: "trust"
+    healthcheck:
+      test: ["CMD", "pg_isready", "--username=postgres", "--host=127.0.0.1", "--port=5432"]
+      interval: 2s
+      timeout: 1m
+      retries: 5
+      start_period: 10s
+
+
 volumes:
    database:
